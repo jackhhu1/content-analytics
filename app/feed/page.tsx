@@ -98,13 +98,12 @@ export default async function FeedPage() {
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {augmentedPosts.length === 0 ? (
-            <div className="col-span-full border border-dashed border-white/10 rounded-xl p-12 text-center flex flex-col items-center justify-center">
-               <svg className="w-12 h-12 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <h3 className="text-slate-300 font-medium text-lg">No signals detected yet</h3>
-              <p className="text-slate-500 mt-2 max-w-sm">
-                We are still calibrating baselines and waiting for an outlier to emerge. Check back soon.
+            <div className="col-span-full py-32 text-center flex flex-col items-center justify-center">
+              <h3 className="text-slate-200 font-serif text-2xl italic tracking-wide">
+                "Ichi-go ichi-e"
+              </h3>
+              <p className="text-slate-500 mt-4 max-w-md font-light leading-relaxed">
+                Every moment is a unique encounter. We are currently searching for the signal in your niche.
               </p>
             </div>
           ) : (
