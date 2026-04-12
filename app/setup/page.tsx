@@ -18,6 +18,8 @@ export default function SetupPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [status, setStatus] = useState('');
   const [triggering, setTriggering] = useState(false);
+  // Track which single account is being scraped (by account ID)
+  const [scrapingId, setScrapingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevScrapedRef = useRef<Record<string, string | null>>({});
@@ -75,45 +77,60 @@ export default function SetupPage() {
     }
   };
 
+  // Shared polling logic — watchId is the account ID to watch (null = watch all)
+  const startPolling = (watchId: string | null, snapshot: Record<string, string | null>) => {
+    prevScrapedRef.current = snapshot;
+    pollRef.current = setInterval(async () => {
+      const fresh = await refreshAccounts();
+      const updated = watchId
+        ? fresh.some((a: any) => a.id === watchId && a.last_scraped_at !== snapshot[a.id])
+        : fresh.some((a: any) => a.last_scraped_at !== snapshot[a.id]);
+
+      if (updated) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setTriggering(false);
+        setScrapingId(null);
+        setStatus('✓ Scrape complete — accounts updated!');
+        setTimeout(() => setStatus(''), 4000);
+      }
+    }, 5000);
+  };
+
+  // Scrape ALL accounts
   const handleTrigger = async () => {
     setTriggering(true);
-    setStatus('Triggering crawler...');
-
+    setStatus('Triggering crawler for all accounts...');
     try {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setStatus('Trigger simulated (mock mode). Check server logs.');
-        setTimeout(() => setStatus(''), 3000);
-        setTriggering(false);
-        return;
-      }
       const res = await triggerScrapeAction(MOCK_USER_ID);
       setStatus(`${res.message} — Waiting for data...`);
-
-      // Snapshot the current last_scraped_at for each account before polling
       const snapshot: Record<string, string | null> = {};
       accounts.forEach(a => { snapshot[a.id] = a.last_scraped_at; });
-      prevScrapedRef.current = snapshot;
-
-      // Poll every 5s, stop when any account's last_scraped_at changes
-      pollRef.current = setInterval(async () => {
-        const fresh = await refreshAccounts();
-        const updated = fresh.some(
-          (a: any) => a.last_scraped_at !== prevScrapedRef.current[a.id]
-        );
-        if (updated) {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
-          setTriggering(false);
-          setStatus('✓ Scrape complete — accounts updated!');
-          setTimeout(() => setStatus(''), 4000);
-        }
-      }, 5000);
-
+      startPolling(null, snapshot);
     } catch (e: any) {
       setStatus(e.message || 'Trigger failed');
       setTriggering(false);
     }
   };
+
+  // Scrape a SINGLE account
+  const handleTriggerOne = async (acc: any) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setScrapingId(acc.id);
+    setStatus(`Triggering scrape for @${acc.handle}...`);
+    try {
+      const res = await triggerScrapeAction(MOCK_USER_ID, acc.handle);
+      setStatus(`${res.message} — Waiting for data...`);
+      const snapshot: Record<string, string | null> = {};
+      accounts.forEach(a => { snapshot[a.id] = a.last_scraped_at; });
+      startPolling(acc.id, snapshot);
+    } catch (e: any) {
+      setStatus(e.message || 'Trigger failed');
+      setScrapingId(null);
+    }
+  };
+
+  const isBusy = triggering || scrapingId !== null;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-200 px-4 py-12 font-sans">
@@ -152,54 +169,79 @@ export default function SetupPage() {
           <div className="flex justify-between items-center bg-slate-900/50 px-5 py-3 rounded-t-xl border-b border-white/10">
             <h2 className="font-semibold text-slate-300">Tracked Accounts ({accounts.length})</h2>
             <button
+              id="scrape-all-btn"
               onClick={handleTrigger}
-              disabled={triggering || accounts.length === 0}
-              className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white px-4 py-2 rounded shadow-[0_0_15px_rgba(79,70,229,0.2)] transition-all"
+              disabled={isBusy || accounts.length === 0}
+              className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white px-4 py-2 rounded shadow-[0_0_15px_rgba(79,70,229,0.2)] transition-all"
             >
-              {triggering ? "Starting..." : "Trigger Scrape Now ↗"}
+              {triggering ? 'Running all...' : 'Scrape All ↗'}
             </button>
           </div>
 
           <ul className="space-y-2">
-            {accounts.map(acc => (
-              <li key={acc.id} className="flex justify-between items-center bg-slate-900/80 border border-white/5 rounded-lg p-4">
-                <div className="flex gap-4 items-center">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 flex-shrink-0 overflow-hidden flex items-center justify-center text-slate-400 font-bold">
-                    {acc.profile_pic_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={acc.profile_pic_url}
-                        alt={`@${acc.handle}`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          // Gracefully fall back to letter on 403s
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      acc.handle.charAt(0).toUpperCase()
-                    )}
+            {accounts.map(acc => {
+              const isThisOne = scrapingId === acc.id;
+              return (
+                <li key={acc.id} className="flex justify-between items-center bg-slate-900/80 border border-white/5 rounded-lg p-4">
+                  <div className="flex gap-4 items-center">
+                    <div className="w-10 h-10 rounded-full bg-slate-800 flex-shrink-0 overflow-hidden flex items-center justify-center text-slate-400 font-bold">
+                      {acc.profile_pic_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={acc.profile_pic_url}
+                          alt={`@${acc.handle}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        acc.handle.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-200">@{acc.handle}</p>
+                      <p className="text-xs text-slate-500">
+                        {acc.current_follower_count > 0 ? `${acc.current_follower_count.toLocaleString()} followers · ` : ''}
+                        <span className={acc.last_scraped_at ? 'text-emerald-600' : 'text-slate-600'}>
+                          {acc.last_scraped_at ? `Last fetched ${formatLastFetched(acc.last_scraped_at)}` : 'Never fetched'}
+                        </span>
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-slate-200">@{acc.handle}</p>
-                    <p className="text-xs text-slate-500">
-                      {acc.current_follower_count > 0 ? `${acc.current_follower_count.toLocaleString()} followers · ` : ''}
-                      <span className={acc.last_scraped_at ? 'text-emerald-600' : 'text-slate-600'}>
-                        {acc.last_scraped_at ? `Last fetched ${formatLastFetched(acc.last_scraped_at)}` : 'Never fetched'}
-                      </span>
-                    </p>
+
+                  <div className="flex items-center gap-2">
+                    {/* Per-account scrape button */}
+                    <button
+                      id={`scrape-btn-${acc.handle}`}
+                      onClick={() => handleTriggerOne(acc)}
+                      disabled={isBusy}
+                      title={`Scrape @${acc.handle}`}
+                      className={`
+                        text-xs font-semibold px-3 py-1.5 rounded border transition-all
+                        ${isThisOne
+                          ? 'border-indigo-500 text-indigo-400 bg-indigo-950 animate-pulse cursor-wait'
+                          : 'border-white/10 text-slate-400 hover:border-indigo-500 hover:text-indigo-300 hover:bg-indigo-950/40 disabled:opacity-30 disabled:cursor-not-allowed'
+                        }
+                      `}
+                    >
+                      {isThisOne ? 'Scraping…' : '↗ Scrape'}
+                    </button>
+
+                    {/* Remove button */}
+                    <button
+                      onClick={() => handleRemove(acc.id)}
+                      disabled={isBusy}
+                      className="text-slate-500 hover:text-red-400 p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                </div>
-                <button
-                  onClick={() => handleRemove(acc.id)}
-                  className="text-slate-500 hover:text-red-400 p-2 transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </li>
-            ))}
+                </li>
+              );
+            })}
             {accounts.length === 0 && !loading && (
               <li className="text-center py-8 text-slate-500 border border-dashed border-white/10 rounded-lg">
                 No accounts tracked. Add your first handle above.
