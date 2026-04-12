@@ -136,12 +136,23 @@ that turn out to be core.
    may not be returned by Apify). Score is computed on whatever signals are available.
    
    Overperformer = score >= 1.5x median(score of last 30 posts for that account).
+   Baseline is computed from ALL posts for the account (overperformer + non-overperformer) —
+   not just previously flagged overperformers. Computing from only overperformers inflates
+   the baseline weekly until the feed goes empty (survivorship bias).
    Tie-breaking: higher absolute share count wins (if equal, higher comments).
    Top 5 overperformers per account are surfaced (25 max for 5 accounts per week).
    
    When Apify run completes, it fires a webhook to `/api/webhook/apify`. Handler verifies
-   `APIFY_WEBHOOK_SECRET`, inserts posts, and enqueues for extraction. Idempotent:
+   `APIFY_WEBHOOK_SECRET`, checks `scrape_runs.status != 'completed'` before processing
+   (replay protection), inserts posts, and enqueues for extraction. Idempotent:
    INSERT uses ON CONFLICT (account_id, instagram_post_id) DO NOTHING.
+   
+   Instagram handle validation (server-side): `/^[a-zA-Z0-9_.]{1,30}$/`. Strip leading
+   `@` before storing.
+   
+   Apify circuit-breaker: if a `scrape_run` for an account has `status='failed'` for 2
+   consecutive weeks, the feed UI shows "Automated scraping paused for @handle — paste
+   reels manually" and the URL fallback input is highlighted for that account.
 
 3. **AI extraction:** For each overperforming post, GPT-4o extracts from caption +
    thumbnail (video frame analysis is out of scope for v1):
@@ -152,24 +163,47 @@ that turn out to be core.
    - Pacing: omitted from v1 — requires video frame sampling, not available from
      caption/thumbnail alone. Added in v2 if audio transcription is integrated.
 
-   **Extraction ordering (decoupled from storage):**
-   1. Call GPT-4o immediately using the live Apify CDN URL (GPT-4o accepts image URLs)
-   2. After extraction succeeds: download thumbnail to Supabase Storage as a best-effort
-      async step (for permanent display — Instagram CDN URLs expire)
-   3. If storage download fails: extraction already succeeded, thumbnail_storage_path=null,
-      feed shows placeholder image only
+   **Extraction ordering (storage-first):**
+   1. Download thumbnail from Apify CDN to Supabase Storage (blocking step)
+   2. Generate signed Supabase URL with long TTL
+   3. Call GPT-4o vision with the signed Supabase URL (not the live Apify CDN URL)
+   4. If storage download fails: skip thumbnail, mark `thumbnail_storage_path=null`,
+      continue with caption-only extraction (hook_type still extractable from text)
+   5. If GPT-4o fails: `post_extractions.extraction_status='failed'`, retry from queue
    
-   This decoupling removes the failure mode where a storage failure blocks extraction.
+   Rationale: Apify CDN URLs may require auth GPT-4o cannot provide and expire in
+   24-72 hours under queue load. Passing a live CDN URL to GPT-4o risks silent failure
+   on the first Monday. Storage-first guarantees the URL GPT-4o receives is stable and
+   accessible. GPT-4o JSON mode enforced — response is schema-constrained, preventing
+   prompt injection via caption content.
+   
+   **URL fallback (manual input):** On `/setup`, a "Paste a Reel URL" input is visible
+   at all times (not just on error). Post ID extracted via regex `/(p|reel)/([A-Za-z0-9_-]+)/`.
+   A synthetic post record is inserted directly into `posts` (skipping `scrape_runs` and
+   `niche_accounts`), then immediately enqueued in `scrape_queue` for GPT-4o extraction.
+   Route: `POST /api/ingest-url` (authenticated). Invalid URL format → 400 with message
+   "That doesn't look like an Instagram reel URL". Private account → 422 with message
+   "Couldn't access that reel — is it a public post?"
 
-4. **Feed UI:** Clean grid of analyzed posts, newest first. Each card shows stored
-   thumbnail + extracted structure. Click to expand → "Recreate with your twist"
-   template with these fields:
-   - Hook sentence: [write your version of the hook]
-   - Format: [talking head / B-roll / text overlay]
-   - Topic angle: [your unique take on the topic]
-   - CTA: [what you want viewers to do]
-   Empty state: "Your niche feed is being built — check back Monday." Error state per
-   account: "Couldn't fetch @accountname this week — will retry next cycle."
+4. **Feed UI:** Clean grid of analyzed posts, newest first (`scraped_at` DESC — not post
+   publish date). 20 cards per page, infinite scroll. Each card shows:
+   - Thumbnail (16:9, top), or placeholder if `thumbnail_storage_path=null`
+   - `hook_type` badge (colored pill)
+   - `topic_angle` (1-sentence, truncated to 2 lines)
+   - Account handle + `scraped_at` relative date
+   
+   Click → right-side slide-over drawer (grid dims to 40% opacity). Close on ESC or
+   overlay click. Drawer shows "Recreate with your twist" with editable inputs:
+   - Hook sentence (textarea, auto-saves on blur with 300ms debounce)
+   - Format choice (select: talking head / B-roll / text overlay)
+   - Topic angle (textarea)
+   - CTA (text input)
+   Auto-save shows "Saved" confirmation replacing button label for 2s.
+   
+   **Empty state:** "Your niche feed is being built — check back Monday."
+   **Loading state:** Skeleton card grid + "Analyzing X of Y posts" progress banner.
+   **Error state per account:** "Couldn't fetch @handle this week — will retry next cycle."
+   (dismissible, shown inline at top of grid, not blocking)
 
 5. **Save + playbook:** User can save cards to their personal playbook. Unsave removes
    from playbook (card remains in main feed). Accessible via `/playbook` route — same
@@ -183,30 +217,63 @@ restricts reads/writes to `auth.uid() = user_id`. Each user sees only their own 
 **Background jobs:** Supabase Edge Functions have CPU time limits (~2s wall-clock on free
 tier, 60s on Pro). Processing 10-20 posts per run (Apify fetch + thumbnail download +
 GPT-4o call) will exceed free-tier limits. Architecture: a single cron Edge Function
-enqueues post IDs into a `scrape_queue` table; a second Edge Function processes one
-post per invocation (triggered via pg_cron every 30s). This fan-out pattern keeps each
-invocation well within limits. Alternative: small VPS (Railway/Fly.io $5/mo) running a
-simple Node.js cron if Supabase queue complexity is unwanted overhead for v1.
+(`scrape-trigger`) enqueues post IDs into `scrape_queue`; a second Edge Function
+(`extract-post`) processes one post per invocation (triggered via pg_cron every 30s).
+This fan-out pattern keeps each invocation well within limits.
+
+`extract-post` MUST use `SELECT ... FOR UPDATE SKIP LOCKED` when claiming a queue item.
+Without this, concurrent pg_cron invocations will claim the same item simultaneously,
+calling GPT-4o twice per post and writing conflicting extraction results. The correct
+claim pattern:
+```sql
+UPDATE scrape_queue
+SET status = 'processing', processing_started_at = now()
+WHERE id = (
+  SELECT id FROM scrape_queue
+  WHERE status = 'pending'
+  ORDER BY created_at ASC
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1
+)
+RETURNING *;
+```
+Stuck recovery: `processing_started_at < now() - interval '5 minutes'` → reset to `pending`.
+OpenAI failures: exponential backoff, log to `post_extractions.extraction_status = 'failed'`.
+Alternative: small VPS (Railway/Fly.io $5/mo) running a simple Node.js cron if Supabase
+queue complexity is unwanted overhead for v1.
 **Hosting:** Vercel (frontend, Next.js only) + Supabase (database, storage, edge
 functions — free tier to start)
 
 **Core data model (v1 tables):**
 - `users` — managed by Supabase Auth
-- `niche_accounts(id, user_id FK, instagram_handle, created_at)` — RLS: user_id = auth.uid()
-- `scrape_runs(id, account_id FK, user_id FK, apify_run_id TEXT, status, triggered_at, completed_at)` — tracks Apify runs; status: 'running'|'completed'|'failed'
-- `posts(id, account_id FK, user_id FK, instagram_post_id, instagram_cdn_url, caption, thumbnail_storage_path, view_count, like_count, comment_count, share_count, composite_score, account_baseline_score, is_overperformer, scraped_at, hook_type, format_type, topic_angle, cta_type, extraction_status)` — RLS: user_id = auth.uid() [direct column, not join]. UNIQUE(account_id, instagram_post_id).
-- `saved_cards(id, user_id FK, post_id FK, saved_at, user_notes JSONB)` — RLS: user_id = auth.uid(). user_notes stores editable "Recreate with your twist" fields: {hook_sentence, format_choice, topic_angle, cta}.
-- `scrape_queue(id, account_id FK, user_id FK, post_id FK, status, created_at, processed_at, processing_started_at)` — status: 'pending'|'processing'|'completed'|'failed'. Stuck recovery: processing_started_at < now()-5min → reset to pending.
-- `scrape_errors(id, account_id FK, user_id FK, error_message, failed_at)` — for scraping failure monitoring (see TODOS)
+- `niche_accounts(id, user_id FK NOT NULL, instagram_handle, created_at)` — RLS: user_id = auth.uid()
+- `scrape_runs(id, account_id FK, user_id FK NOT NULL, apify_run_id TEXT, status, triggered_at, completed_at)` — status: 'running'|'completed'|'failed'. consecutive_failures INT DEFAULT 0 — incremented on each failed run, reset to 0 on success. Circuit-breaker: consecutive_failures >= 2 → show paused state in UI.
+- `posts(id, account_id FK, user_id FK NOT NULL, instagram_post_id, instagram_cdn_url, caption, thumbnail_storage_path, view_count, like_count, comment_count, share_count, composite_score, account_baseline_score, is_overperformer, scraped_at)` — RLS: user_id = auth.uid() [direct column, not join]. UNIQUE(account_id, instagram_post_id). INDEX: (user_id, is_overperformer, scraped_at).
+- `post_extractions(id, post_id FK UNIQUE, hook_type, format_type, topic_angle, cta_type, extraction_status, extracted_at)` — no separate RLS needed (access via post_id JOIN posts which has RLS). extraction_status: 'pending'|'processing'|'completed'|'failed'.
+- `saved_cards(id, user_id FK NOT NULL, post_id FK, saved_at, user_notes JSONB)` — RLS: user_id = auth.uid(). user_notes: {hook_sentence, format_choice, topic_angle, cta} (all nullable). ON CONFLICT (user_id, post_id) DO NOTHING. INDEX: (user_id, post_id).
+- `scrape_queue(id, account_id FK, user_id FK NOT NULL, post_id FK, status, created_at, processed_at, processing_started_at)` — status: 'pending'|'processing'|'completed'|'failed'. Stuck recovery: processing_started_at < now()-5min → reset to pending.
+- `scrape_errors(id, account_id FK, user_id FK NOT NULL, error_message, failed_at)` — for scraping failure monitoring (see TODOS)
 
 **Follower count:** fetched fresh at each scrape time and stored on the `posts` row.
 Not cached across scrapes (follower count drift matters for engagement rate accuracy).
 
+**Pre-build validation required (before writing extraction code):**
+Run one real Apify Instagram actor on a public account. Take one returned thumbnail URL.
+Pass it to GPT-4o vision API without auth headers. If GPT-4o returns a non-error response
+describing the image, the storage-first architecture is validated. If it 403s, storage-first
+is still the correct path (and this result confirms it). This experiment takes ~1 hour and
+must happen before writing `supabase/functions/extract-post/`.
+
 **Edge cases:**
-- Account with <30 posts: use all available posts as baseline
-- Tie-breaking at overperformer boundary: sort by absolute likes (higher wins)
-- Thumbnail download failure: extraction proceeds without thumbnail, hook_type marked as "text-only-extraction", thumbnail_storage_path left null
+- Account with <30 posts: use all available posts as baseline (no minimum threshold)
+- Tie-breaking at overperformer boundary: sort by absolute share count (if equal, comments)
+- Thumbnail download failure: `thumbnail_storage_path=null`, continue with caption-only
+  extraction. `post_extractions.hook_type` still populated from caption.
+- URL fallback post has no `account_id` or `scrape_run_id` (set to null). Feed query
+  must handle null account_id without erroring.
 - Session expiry: redirect to `/login` on 401, silent re-auth not implemented in v1
+- Feed query joins `posts` + `post_extractions` — LEFT JOIN so posts with pending
+  extraction still appear (show skeleton state for hook_type/format_type fields)
 
 **Skip in v1:** YouTube integration, your own content analytics, scheduling/posting,
 mobile app, team features, notifications.
@@ -287,16 +354,17 @@ the pitch before building.
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| CEO Review | `/autoplan` | Scope & strategy | 1 | COMPLETE | 12 auto-decided, URL fallback + circuit-breaker added |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 10 issues, 2 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Eng Review | `/autoplan` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 10 issues, 2 critical gaps, all resolved |
+| Design Review | `/autoplan` | UI/UX gaps | 1 | COMPLETE | 10 auto-decided (card anatomy, drawer, loading states) |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 **OUTSIDE VOICE:** Claude subagent, issues_found — 3 tensions surfaced (views-based scoring, thumbnail decoupling, scraping fragility)
+**USER DECISIONS:** 2 — extraction ordering (inverted: storage-first), schema (split: posts + post_extractions)
 **UNRESOLVED:** 0 decisions unresolved
-**CRITICAL GAPS:** 2 — RLS isolation test (must pass before 2nd user), scraping failure monitoring (build before v1 launch)
-**VERDICT:** ENG CLEARED — ready to implement. Address 2 critical gaps during implementation.
+**CRITICAL GAPS:** 0 — all addressed (SKIP LOCKED, RLS isolation test spec'd, scraping failure monitoring spec'd)
+**VERDICT:** AUTOPLAN CLEARED — ready to implement. Run pre-build validation experiment before writing extract-post Edge Function.
 
 ## What I noticed about how you think
 
