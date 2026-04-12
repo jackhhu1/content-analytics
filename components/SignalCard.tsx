@@ -32,7 +32,7 @@ export default function SignalCard({
   const isAlpha = rawMultiplier > 5.0;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-slate-700 transition-all group flex flex-col relative">
+    <div className="bg-white/[0.02] border border-white/10 backdrop-blur-md rounded-xl overflow-hidden hover:border-white/20 transition-all group flex flex-col relative">
       {/* Alpha Badge */}
       {isAlpha && (
         <div className="absolute top-0 right-0 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg shadow-lg z-10 uppercase tracking-widest">
@@ -45,15 +45,15 @@ export default function SignalCard({
         {/* Core Signal - The Loudest Element */}
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <span className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-br from-emerald-400 to-emerald-600 drop-shadow-sm">
-              {multiplierText}x <span className="text-xl text-emerald-500/70 font-bold uppercase tracking-wide">Signal</span>
+            <span className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-emerald-300 to-emerald-600 drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+              {multiplierText}x <span className="text-xl text-emerald-500 font-bold uppercase tracking-wide drop-shadow-none">Signal</span>
             </span>
-            <span className="text-slate-500 text-sm mt-1 font-medium">vs Median Baseline</span>
+            <span className="text-slate-400 text-sm mt-1 font-medium tracking-wide">vs Median Baseline</span>
           </div>
         </div>
 
         {/* Handle & Context (Small, secondary) */}
-        <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+        <div className="flex items-center gap-3 pb-4 border-b border-white/10">
           <div>
             <h3 className="text-slate-300 font-semibold text-sm">
               @{handle}
@@ -69,8 +69,8 @@ export default function SignalCard({
         </div>
 
         {/* Caption */}
-        <div className="flex-1">
-          <p className="text-slate-400 text-sm line-clamp-3 leading-relaxed italic border-l-2 border-slate-800 pl-3">
+        <div className="flex-1 mt-1">
+          <p className="text-slate-300 text-[15px] line-clamp-3 leading-relaxed italic border-l-2 border-white/20 pl-4 font-light tracking-wide">
             "{caption || "No caption provided"}"
           </p>
         </div>
@@ -82,7 +82,7 @@ export default function SignalCard({
             href={postUrl} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex-1 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(79,70,229,0.3)]"
+            className="flex-1 text-sm font-bold text-black border border-white/10 bg-white hover:bg-slate-200 px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.15)]"
           >
             Watch Post
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -92,7 +92,7 @@ export default function SignalCard({
 
           {/* Secondary Action (Playbook) */}
           <button 
-            className="flex-1 text-sm font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="flex-1 text-sm font-semibold text-slate-300 bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             Add to Playbook
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -84,7 +84,7 @@ export default async function FeedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-12 font-sans selection:bg-emerald-500/30">
+    <div className="min-h-screen bg-[#0a0a0a] px-4 py-12 font-sans selection:bg-emerald-500/30">
       <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Header */}
@@ -98,7 +98,7 @@ export default async function FeedPage() {
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {augmentedPosts.length === 0 ? (
-            <div className="col-span-full border border-dashed border-slate-800 rounded-xl p-12 text-center flex flex-col items-center justify-center">
+            <div className="col-span-full border border-dashed border-white/10 rounded-xl p-12 text-center flex flex-col items-center justify-center">
                <svg className="w-12 h-12 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>

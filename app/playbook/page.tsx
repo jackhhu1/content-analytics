@@ -25,7 +25,7 @@ export default function PlaybookPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-12 font-sans selection:bg-emerald-500/30">
+    <div className="min-h-screen bg-[#0a0a0a] px-4 py-12 font-sans selection:bg-emerald-500/30">
       <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Header */}
@@ -39,7 +39,7 @@ export default function PlaybookPage() {
         {/* List */}
         <div className="flex flex-col gap-6">
           {mockSavedPosts.length === 0 ? (
-            <div className="col-span-full border border-dashed border-slate-800 rounded-xl p-12 text-center flex flex-col items-center justify-center">
+            <div className="col-span-full border border-dashed border-white/10 rounded-xl p-12 text-center flex flex-col items-center justify-center">
                <svg className="w-12 h-12 text-slate-700 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
               </svg>
