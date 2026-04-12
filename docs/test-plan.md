@@ -25,18 +25,18 @@ Status: UPDATED (Metadata focus)
     - Ensure correct median calculation (not mean) to prevent skewed results from a single viral hit.
     - Handle empty arrays or < 3 posts gracefully.
 - `detectOutliers(posts[], threshold=2.0)`:
-    - Correctly marks posts where `post.vc >= (median * threshold)`.
+    - Correctly marks posts where `post.vc >= (median * threshold)` OR `post.vc >= 2.0`.
     - Returns top outliers sorted by multiplier.
 
 ### app/api/webhook/apify/route.ts
 - Verify that `follower_count` is correctly captured and stored per-scrape.
 - Ensure `is_outlier` boolean is calculated and set on INSERT.
-- Check that duplicate `post_id` for the same scrape run are ignored.
+- Check that duplicate `url`s for the same scrape run trigger an `ON CONFLICT DO UPDATE` to refresh the `view_count`, `viral_coefficient`, and `is_outlier` fields.
 
 ## Integration Tests (Supabase)
 
 ### RLS & Multi-Tenancy (CRITICAL)
-1. **User Isolation:** Ensure User A cannot see the `niche_accounts` or `posts` of User B.
+1. **User Isolation:** Ensure User A can only query `posts` for accounts they are mapped to via `user_subscriptions`.
 2. **Playbook Privacy:** User B should not be able to read or edit `user_notes` from User A’s playbook entries.
 
 ### Database Constraints
@@ -60,7 +60,7 @@ Status: UPDATED (Metadata focus)
 ## Edge Cases
 
 - **Private Accounts:** Apify returns no data. The UI should show "No public data found for @handle."
-- **Niche Overlap:** Two users tracking the same account. The system should store separate `post` records per user (to maintain RLS isolation) or use a global `posts` table with a many-to-many `user_feeds` table. *Decision: v1 uses separate records for RLS simplicity.*
+- **Niche Overlap:** Two users tracking the same account. The system uses a global `global_accounts` and `posts` structure joined by `user_subscriptions` to ensure $O(Accounts)$ scraping costs instead of $O(Users \times Accounts)$.
 - **Zero Follower Accounts:** If a creator is just starting (0 followers), the Viral Coefficient is infinite. Cap the denominator at 1 for calculation purposes to avoid errors.
 
 ## Success Metrics

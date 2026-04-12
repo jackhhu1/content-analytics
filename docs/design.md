@@ -38,7 +38,7 @@ Focus on the ranking and the math. Let Instagram handle the media.
 
 ### 2. Ranking Engine (The Filter)
 - **Baseline:** Calculate the median $VC$ for each tracked account.
-- **Scoring:** Identify "Outliers" ($Post VC > 2x Account Median VC$).
+- **Scoring:** Identify "Outliers" ($Post VC \geq 2.0$ OR $Post VC > 2x Account Median VC$). This global floor ensures consistently viral creators aren't penalized by their own high baseline.
 - **Sorting:** The main feed shows the top 20 outliers across the user's entire niche, regardless of account size.
 
 ### 3. Lean UI (The Dashboard)
@@ -62,13 +62,15 @@ Focus on the ranking and the math. Let Instagram handle the media.
 
 ## Revised Data Model
 
-- `niche_accounts`: `id`, `user_id`, `handle`, `current_follower_count`.
-- `posts`: `id`, `account_id`, `url`, `view_count`, `follower_count_at_scrape`, `viral_coefficient` (decimal), `is_outlier` (boolean), `scraped_at`.
-- `playbook`: `id`, `user_id`, `post_url`, `hook_draft`, `format_notes`.
+- `global_accounts`: `id`, `handle`, `current_follower_count`, `last_scraped_at`. (Global pool prevents redundant scraping costs if multiple users track the same niche).
+- `user_subscriptions`: `user_id`, `account_id`. (Junction table for feed visibility via RLS).
+- `posts`: `id`, `account_id`, `url`, `view_count`, `follower_count_at_scrape`, `viral_coefficient`, `is_outlier`, `scraped_at`, `thumbnail_url`.
+  *Note: Webhook uses `ON CONFLICT (account_id, url) DO UPDATE SET view_count=EXCLUDED.view_count, viral_coefficient=EXCLUDED.viral_coefficient, is_outlier=EXCLUDED.is_outlier` to ensure metrics aren't frozen on the first scrape.*
+- `playbook`: `id`, `user_id`, `post_id`, `hook_draft`, `format_notes`.
 
 ## Pre-Build Validation (The 24-Hour Test)
 Instead of building the scraper, manually find 10 overperformers in a niche using `Views / Followers`. Put them in a Google Sheet. Show it to 3 creators. If they find the "Signal" (the high VC posts) more valuable than their own "Saved" folder, build the automated version.
 
 ## Key Constraints
-- **Link Expiry:** Thumbnail URLs from Instagram expire. Use a proxy or simple `<img>` tag with the live URL (accepting some broken images in the UI in exchange for $0 storage costs).
+- **Link Expiry:** Instagram CDN URLs expire and block hotlinking (403s) if embedded directly. Use a lightweight Next.js passthrough route (e.g., `/api/image-proxy?url=...`) to stream images server-side, masking the origin and resolving 403s without incurring Supabase storage costs.
 - **Follower Accuracy:** Must scrape follower count *at the time of the post analysis* to ensure the Viral Coefficient isn't skewed by account growth.
