@@ -40,19 +40,34 @@ export async function POST(req: Request) {
     // Process posts grouped by handle to optimize DB queries
     const postsByHandle: Record<string, any[]> = {};
     for (const rawPost of apifyPosts) {
-      const handle = rawPost.handle || rawPost.ownerUsername || rawPost.owner?.username;
+      const handle = rawPost.ownerUsername || rawPost.handle || rawPost.owner?.username;
       if (!handle) continue;
-      
-      const views = rawPost.views || rawPost.videoViewCount || rawPost.videoPlayCount || rawPost.likesCount || 0;
+
+      // Views: prefer playCount (reels reach) > viewCount > likes as last resort
+      const views = rawPost.videoPlayCount || rawPost.videoViewCount || rawPost.likesCount || 0;
       const url = rawPost.url || (rawPost.shortCode ? `https://instagram.com/p/${rawPost.shortCode}` : '');
       const caption = rawPost.caption || rawPost.title || '';
+
+      // Profile pic: not at top-level — mine it from comments where the owner replied
+      let profilePicUrl: string | null = null;
+      const allComments: any[] = [
+        ...(rawPost.latestComments || []),
+        ...(rawPost.latestComments || []).flatMap((c: any) => c.replies || [])
+      ];
+      for (const c of allComments) {
+        if (c.ownerUsername === handle && c.ownerProfilePicUrl) {
+          profilePicUrl = c.ownerProfilePicUrl;
+          break;
+        }
+      }
 
       const standardizedPost = {
         handle,
         views,
         url,
         caption,
-        followers: rawPost.followers || null // Will fallback to DB if missing
+        followers: rawPost.ownerFollowersCount || rawPost.followers || null,
+        profilePicUrl
       };
 
       if (!postsByHandle[handle]) postsByHandle[handle] = [];
@@ -113,12 +128,14 @@ export async function POST(req: Request) {
           console.error('Failed to upsert posts for handle', handle, upsertErr);
         }
 
-        // Update the account's last scraped timestamp and latest follower count
+        // Update the account's last scraped timestamp, latest follower count, and profile pic
+        const firstPost = posts[0];
         await supabase
           .from('niche_accounts')
           .update({
             last_scraped_at: new Date().toISOString(),
-            current_follower_count: posts[0]?.followers || account.current_follower_count
+            ...(firstPost?.followers && { current_follower_count: firstPost.followers }),
+            ...(firstPost?.profilePicUrl && { profile_pic_url: firstPost.profilePicUrl })
           })
           .eq('id', account.id);
       }

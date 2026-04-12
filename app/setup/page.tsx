@@ -1,7 +1,17 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { triggerScrapeAction } from '@/lib/apify-trigger';
 import { getAccounts, addAccount, removeAccount } from '@/lib/db-actions';
+
+function formatLastFetched(ts: string | null) {
+  if (!ts) return 'Never fetched';
+  const date = new Date(ts);
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return date.toLocaleDateString();
+}
 
 export default function SetupPage() {
   const [handleInput, setHandleInput] = useState('');
@@ -9,17 +19,29 @@ export default function SetupPage() {
   const [status, setStatus] = useState('');
   const [triggering, setTriggering] = useState(false);
   const [loading, setLoading] = useState(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevScrapedRef = useRef<Record<string, string | null>>({});
 
   // Hardcoded mock user for now
   const MOCK_USER_ID = '5d1def1e-507a-426b-b859-49f1e3b8ca52';
 
+  const refreshAccounts = async () => {
+    const data = await getAccounts(MOCK_USER_ID);
+    setAccounts(data);
+    return data;
+  };
+
   useEffect(() => {
     async function load() {
-      const data = await getAccounts(MOCK_USER_ID);
-      setAccounts(data);
+      const data = await refreshAccounts();
+      // Snapshot current scraped_at values as baseline
+      const snapshot: Record<string, string | null> = {};
+      data.forEach((a: any) => { snapshot[a.id] = a.last_scraped_at; });
+      prevScrapedRef.current = snapshot;
       setLoading(false);
     }
     load();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [MOCK_USER_ID]);
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -57,20 +79,40 @@ export default function SetupPage() {
     setTriggering(true);
     setStatus('Triggering crawler...');
 
-    // Call server action (Wait: we're partially mock, so we intercept if no Supabase keys exist)
     try {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setStatus('Trigger simulated (mock mode). Check server logs.');
         setTimeout(() => setStatus(''), 3000);
-      } else {
-        const res = await triggerScrapeAction(MOCK_USER_ID);
-        setStatus(res.message);
+        setTriggering(false);
+        return;
       }
+      const res = await triggerScrapeAction(MOCK_USER_ID);
+      setStatus(`${res.message} — Waiting for data...`);
+
+      // Snapshot the current last_scraped_at for each account before polling
+      const snapshot: Record<string, string | null> = {};
+      accounts.forEach(a => { snapshot[a.id] = a.last_scraped_at; });
+      prevScrapedRef.current = snapshot;
+
+      // Poll every 5s, stop when any account's last_scraped_at changes
+      pollRef.current = setInterval(async () => {
+        const fresh = await refreshAccounts();
+        const updated = fresh.some(
+          (a: any) => a.last_scraped_at !== prevScrapedRef.current[a.id]
+        );
+        if (updated) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setTriggering(false);
+          setStatus('✓ Scrape complete — accounts updated!');
+          setTimeout(() => setStatus(''), 4000);
+        }
+      }, 5000);
+
     } catch (e: any) {
       setStatus(e.message || 'Trigger failed');
+      setTriggering(false);
     }
-
-    setTriggering(false);
   };
 
   return (
@@ -122,12 +164,30 @@ export default function SetupPage() {
             {accounts.map(acc => (
               <li key={acc.id} className="flex justify-between items-center bg-slate-900/80 border border-white/5 rounded-lg p-4">
                 <div className="flex gap-4 items-center">
-                  <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 font-bold">
-                    {acc.handle.charAt(0).toUpperCase()}
+                  <div className="w-10 h-10 rounded-full bg-slate-800 flex-shrink-0 overflow-hidden flex items-center justify-center text-slate-400 font-bold">
+                    {acc.profile_pic_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={acc.profile_pic_url}
+                        alt={`@${acc.handle}`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // Gracefully fall back to letter on 403s
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      acc.handle.charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div>
                     <p className="font-semibold text-slate-200">@{acc.handle}</p>
-                    <p className="text-xs text-slate-500">{acc.current_follower_count > 0 ? `${acc.current_follower_count} followers` : 'Pending fetch...'}</p>
+                    <p className="text-xs text-slate-500">
+                      {acc.current_follower_count > 0 ? `${acc.current_follower_count.toLocaleString()} followers · ` : ''}
+                      <span className={acc.last_scraped_at ? 'text-emerald-600' : 'text-slate-600'}>
+                        {acc.last_scraped_at ? `Last fetched ${formatLastFetched(acc.last_scraped_at)}` : 'Never fetched'}
+                      </span>
+                    </p>
                   </div>
                 </div>
                 <button
