@@ -44,9 +44,8 @@ export async function triggerScrapeAction(userId: string) {
         {
           eventTypes: ['ACTOR.RUN.SUCCEEDED'],
           requestUrl: webhookUrls[0],
-          // Send secret via headers or payload
-          payloadTemplate: `{"data": {{resource.defaultDatasetId}}}`, 
-          headersTemplate: `{"Authorization": "Bearer ${process.env.APIFY_WEBHOOK_SECRET || ''}"}`
+          // Inject Bypass-Tunnel-Reminder to bypass localtunnel anti-bot screen natively
+          headersTemplate: `{"Authorization": "Bearer ${process.env.APIFY_WEBHOOK_SECRET || ''}", "Bypass-Tunnel-Reminder": "true", "User-Agent": "Apify"}`
         }
       ]
     });

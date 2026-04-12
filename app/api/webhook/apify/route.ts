@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { ApifyClient } from 'apify-client';
 import { calculateVC, getAccountMedian, detectOutliers } from '@/lib/metrics';
+
+const apify = new ApifyClient({
+  token: process.env.APIFY_API_TOKEN,
+});
 
 // Initialize Supabase admin client to bypass RLS in the webhook
 // Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in env
@@ -20,20 +25,38 @@ export async function POST(req: Request) {
     }
 
     const payload = await req.json();
-    // Assuming the specific actor payload pushes the result array or we map it
-    const apifyPosts = payload.data || payload;
+    let apifyPosts = payload.resource?.defaultDatasetId || payload.data || payload;
+
+    // If Apify sent a dataset ID, fetch the actual dataset items
+    if (typeof apifyPosts === 'string') {
+      const dataset = await apify.dataset(apifyPosts).listItems();
+      apifyPosts = dataset.items;
+    }
 
     if (!Array.isArray(apifyPosts) || apifyPosts.length === 0) {
       return NextResponse.json({ message: 'No posts to process' }, { status: 200 });
     }
 
     // Process posts grouped by handle to optimize DB queries
-    // Expected post payload: { handle, url, caption, views, followers }
     const postsByHandle: Record<string, any[]> = {};
-    for (const post of apifyPosts) {
-      if (!post.handle) continue;
-      if (!postsByHandle[post.handle]) postsByHandle[post.handle] = [];
-      postsByHandle[post.handle].push(post);
+    for (const rawPost of apifyPosts) {
+      const handle = rawPost.handle || rawPost.ownerUsername || rawPost.owner?.username;
+      if (!handle) continue;
+      
+      const views = rawPost.views || rawPost.videoViewCount || rawPost.videoPlayCount || rawPost.likesCount || 0;
+      const url = rawPost.url || (rawPost.shortCode ? `https://instagram.com/p/${rawPost.shortCode}` : '');
+      const caption = rawPost.caption || rawPost.title || '';
+
+      const standardizedPost = {
+        handle,
+        views,
+        url,
+        caption,
+        followers: rawPost.followers || null // Will fallback to DB if missing
+      };
+
+      if (!postsByHandle[handle]) postsByHandle[handle] = [];
+      postsByHandle[handle].push(standardizedPost);
     }
 
     for (const [handle, posts] of Object.entries(postsByHandle)) {
