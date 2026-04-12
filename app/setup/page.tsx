@@ -1,21 +1,28 @@
 'use client';
-import React, { useState } from 'react';
-// Assuming we wire API/DB calls
+import React, { useState, useEffect } from 'react';
 import { triggerScrapeAction } from '@/lib/apify-trigger';
+import { getAccounts, addAccount, removeAccount } from '@/lib/db-actions';
 
 export default function SetupPage() {
   const [handleInput, setHandleInput] = useState('');
-  const [accounts, setAccounts] = useState([
-    { id: '1', handle: 'ohnohanajo', followers: 15400 },
-    { id: '2', handle: 'annataha', followers: 32000 }
-  ]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [status, setStatus] = useState('');
   const [triggering, setTriggering] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Hardcoded mock user for now
-  const MOCK_USER_ID = '00000000-0000-0000-0000-000000000000';
+  const MOCK_USER_ID = '5d1def1e-507a-426b-b859-49f1e3b8ca52';
 
-  const handleAdd = (e: React.FormEvent) => {
+  useEffect(() => {
+    async function load() {
+      const data = await getAccounts(MOCK_USER_ID);
+      setAccounts(data);
+      setLoading(false);
+    }
+    load();
+  }, [MOCK_USER_ID]);
+
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!handleInput.trim()) return;
 
@@ -26,39 +33,50 @@ export default function SetupPage() {
       return;
     }
 
-    setAccounts([...accounts, { id: Date.now().toString(), handle: raw, followers: 0 }]);
-    setHandleInput('');
-    setStatus('');
+    try {
+      setStatus('Adding...');
+      const newAcc = await addAccount(MOCK_USER_ID, raw);
+      setAccounts([newAcc, ...accounts]);
+      setHandleInput('');
+      setStatus('');
+    } catch (err: any) {
+      setStatus(err.message || 'Error adding account');
+    }
   };
 
-  const removeHandle = (id: string) => {
-    setAccounts(accounts.filter(a => a.id !== id));
+  const handleRemove = async (id: string) => {
+    try {
+      await removeAccount(id);
+      setAccounts(accounts.filter(a => a.id !== id));
+    } catch (err: any) {
+      setStatus(err.message || 'Error removing account');
+    }
   };
 
   const handleTrigger = async () => {
     setTriggering(true);
     setStatus('Triggering crawler...');
-    
+
     // Call server action (Wait: we're partially mock, so we intercept if no Supabase keys exist)
     try {
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-         setStatus('Trigger simulated (mock mode). Check server logs.');
-         setTimeout(() => setStatus(''), 3000);
+        setStatus('Trigger simulated (mock mode). Check server logs.');
+        setTimeout(() => setStatus(''), 3000);
       } else {
-         const res = await triggerScrapeAction(MOCK_USER_ID);
-         setStatus(res.message);
+        const res = await triggerScrapeAction(MOCK_USER_ID);
+        setStatus(res.message);
       }
     } catch (e: any) {
       setStatus(e.message || 'Trigger failed');
     }
-    
+
     setTriggering(false);
   };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-200 px-4 py-12 font-sans">
       <div className="max-w-2xl mx-auto space-y-10">
-        
+
         <header className="space-y-3">
           <h1 className="text-3xl font-bold text-white tracking-tight">Niche Intelligence Setup</h1>
           <p className="text-slate-400">Add the top performers in your niche to build your signal baseline.</p>
@@ -69,15 +87,15 @@ export default function SetupPage() {
           <form onSubmit={handleAdd} className="flex gap-4">
             <div className="flex-1 relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">@</span>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={handleInput}
                 onChange={e => setHandleInput(e.target.value)}
                 placeholder="instagram_handle"
                 className="w-full bg-black/50 border border-white/10 rounded-lg py-3 pl-9 pr-4 focus:outline-none focus:border-indigo-500 text-white placeholder-slate-600 transition-colors"
               />
             </div>
-            <button 
+            <button
               type="submit"
               className="bg-white hover:bg-slate-200 text-black font-semibold px-6 rounded-lg transition-colors"
             >
@@ -91,7 +109,7 @@ export default function SetupPage() {
         <section className="space-y-4">
           <div className="flex justify-between items-center bg-slate-900/50 px-5 py-3 rounded-t-xl border-b border-white/10">
             <h2 className="font-semibold text-slate-300">Tracked Accounts ({accounts.length})</h2>
-            <button 
+            <button
               onClick={handleTrigger}
               disabled={triggering || accounts.length === 0}
               className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white px-4 py-2 rounded shadow-[0_0_15px_rgba(79,70,229,0.2)] transition-all"
@@ -99,7 +117,7 @@ export default function SetupPage() {
               {triggering ? "Starting..." : "Trigger Scrape Now ↗"}
             </button>
           </div>
-          
+
           <ul className="space-y-2">
             {accounts.map(acc => (
               <li key={acc.id} className="flex justify-between items-center bg-slate-900/80 border border-white/5 rounded-lg p-4">
@@ -109,11 +127,11 @@ export default function SetupPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-slate-200">@{acc.handle}</p>
-                    <p className="text-xs text-slate-500">{acc.followers > 0 ? `${acc.followers} followers` : 'Pending fetch...'}</p>
+                    <p className="text-xs text-slate-500">{acc.current_follower_count > 0 ? `${acc.current_follower_count} followers` : 'Pending fetch...'}</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => removeHandle(acc.id)}
+                <button
+                  onClick={() => handleRemove(acc.id)}
                   className="text-slate-500 hover:text-red-400 p-2 transition-colors"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -122,9 +140,14 @@ export default function SetupPage() {
                 </button>
               </li>
             ))}
-            {accounts.length === 0 && (
+            {accounts.length === 0 && !loading && (
               <li className="text-center py-8 text-slate-500 border border-dashed border-white/10 rounded-lg">
                 No accounts tracked. Add your first handle above.
+              </li>
+            )}
+            {loading && (
+              <li className="text-center py-8 text-slate-500 border border-dashed border-white/10 rounded-lg">
+                Loading accounts...
               </li>
             )}
           </ul>
