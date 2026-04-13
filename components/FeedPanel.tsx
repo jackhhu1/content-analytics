@@ -5,7 +5,7 @@ import SignalCard from '@/components/SignalCard';
 
 type SortOption = 'signal' | 'views';
 
-export default function FeedPanel({ refreshKey = 0 }: { refreshKey?: number }) {
+export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?: number; selectedIds?: Set<string> }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +75,11 @@ export default function FeedPanel({ refreshKey = 0 }: { refreshKey?: number }) {
 
   const filteredAndSortedPosts = useMemo(() => {
     let result = [...posts];
+
+    // Filter to selected accounts only (client-side, no extra DB calls)
+    if (selectedIds && selectedIds.size > 0) {
+      result = result.filter(p => selectedIds.has(p.account_id));
+    }
 
     if (alphaOnly) {
       result = result.filter(p => p.multiplier >= 5.0);

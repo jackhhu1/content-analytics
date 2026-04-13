@@ -60,41 +60,73 @@ export async function removeAccount(accountId: string) {
 export async function getFeedPosts(userId: string) {
   if (!supabase) throw new Error("Supabase not configured");
 
-  // Only fetch posts for accounts the user is actively tracking
+  // Query 1: get all tracked account IDs for this user
+  const { data: trackedAccounts } = await supabase
+    .from('niche_accounts')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('is_tracked', true);
+
+  if (!trackedAccounts || trackedAccounts.length === 0) return [];
+  const accountIds = trackedAccounts.map((a: any) => a.id);
+
+  // Query 2: fetch outlier posts for ALL tracked accounts
+  // Generous limit so every account can contribute, then we cap per-account in JS.
+  // This ensures a dominant account can't crowd out smaller ones.
+  const PER_ACCOUNT_CAP = 15;
   const { data: rawPosts, error: rpcError } = await supabase
     .from('posts')
     .select(`
       id, post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, account_id, thumbnail_url,
-      niche_accounts!inner ( handle, is_tracked )
+      niche_accounts ( handle )
     `)
-    .eq('user_id', userId)
+    .in('account_id', accountIds)
     .eq('is_outlier', true)
-    .eq('niche_accounts.is_tracked', true)  // Only show posts from currently tracked accounts
-    .order('viral_coefficient', { ascending: false })  // Top signal posts first
-    .limit(50);
+    .order('viral_coefficient', { ascending: false })
+    .limit(accountIds.length * PER_ACCOUNT_CAP * 2); // headroom for the per-account cap
 
   if (rpcError) throw rpcError;
+  if (!rawPosts || rawPosts.length === 0) return [];
 
-  // Augment with medianVc per account
-  const augmented = await Promise.all((rawPosts || []).map(async (post: any) => {
-    const { data: recent } = await supabase
-      .from('posts')
-      .select('viral_coefficient')
-      .eq('account_id', post.account_id)
-      .order('scraped_at', { ascending: false })
-      .limit(10);
-      
-    let medianVc = 0;
-    if (recent && recent.length > 0) {
-      const vcs = recent.map(r => r.viral_coefficient).sort((a,b) => a-b);
-      const mid = Math.floor(vcs.length / 2);
-      medianVc = vcs.length % 2 === 0 ? (vcs[mid-1] + vcs[mid]) / 2 : vcs[mid];
+  // Cap per account in JS — every tracked account gets up to PER_ACCOUNT_CAP slots
+  const countPerAccount: Record<string, number> = {};
+  const cappedPosts = rawPosts.filter((p: any) => {
+    countPerAccount[p.account_id] = (countPerAccount[p.account_id] || 0) + 1;
+    return countPerAccount[p.account_id] <= PER_ACCOUNT_CAP;
+  });
+
+  // Query 3: batch-fetch recent VCs for all accounts (for median calculation)
+  const { data: recentPosts } = await supabase
+    .from('posts')
+    .select('account_id, viral_coefficient, scraped_at')
+    .in('account_id', accountIds)
+    .order('scraped_at', { ascending: false })
+    .limit(accountIds.length * 10);
+
+  // Group into account → last 10 VCs
+  const recentByAccount: Record<string, number[]> = {};
+  for (const p of recentPosts || []) {
+    if (!recentByAccount[p.account_id]) recentByAccount[p.account_id] = [];
+    if (recentByAccount[p.account_id].length < 10) {
+      recentByAccount[p.account_id].push(p.viral_coefficient);
     }
+  }
 
-    const multiplier = medianVc > 0 ? (post.viral_coefficient / medianVc) : post.viral_coefficient;
+  // Compute median per account in memory
+  const medians: Record<string, number> = {};
+  for (const [acctId, vcs] of Object.entries(recentByAccount)) {
+    const sorted = [...vcs].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    medians[acctId] = sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
 
+  // Augment with signal multiplier and return
+  return cappedPosts.map((post: any) => {
+    const medianVc = medians[post.account_id] ?? 0;
+    const multiplier = medianVc > 0 ? post.viral_coefficient / medianVc : post.viral_coefficient;
     return { ...post, medianVc, multiplier };
-  }));
-
-  return augmented;
+  });
 }
+
