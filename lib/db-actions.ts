@@ -54,7 +54,7 @@ export async function getFeedPosts(userId: string) {
   const { data: rawPosts, error: rpcError } = await supabase
     .from('posts')
     .select(`
-      id, post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, account_id, niche_accounts ( handle )
+      id, post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, account_id, thumbnail_url, niche_accounts ( handle )
     `)
     .eq('user_id', userId)
     .eq('is_outlier', true)

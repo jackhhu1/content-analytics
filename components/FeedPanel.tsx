@@ -167,6 +167,7 @@ export default function FeedPanel() {
                   followerCount={post.follower_count_at_scrape}
                   viralCoefficient={post.viral_coefficient}
                   medianVc={post.medianVc}
+                  thumbnailUrl={post.thumbnail_url || null}
                 />
               ))
             )}

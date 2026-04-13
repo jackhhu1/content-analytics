@@ -61,13 +61,22 @@ export async function POST(req: Request) {
         }
       }
 
+      // Thumbnail: displayUrl is the cover image for posts/reels
+      const thumbnailUrl: string | null =
+        rawPost.displayUrl ||
+        rawPost.thumbnailUrl ||
+        rawPost.previewUrl ||
+        rawPost.imageUrl ||
+        null;
+
       const standardizedPost = {
         handle,
         views,
         url,
         caption,
         followers: rawPost.ownerFollowersCount || rawPost.followers || null,
-        profilePicUrl
+        profilePicUrl,
+        thumbnailUrl
       };
 
       if (!postsByHandle[handle]) postsByHandle[handle] = [];
@@ -112,7 +121,8 @@ export async function POST(req: Request) {
             follower_count_at_scrape: followersAtScrape,
             viral_coefficient: vc,
             is_outlier: isOutlier,
-            scraped_at: new Date().toISOString()
+            scraped_at: new Date().toISOString(),
+            thumbnail_url: post.thumbnailUrl || null
           };
         });
 
