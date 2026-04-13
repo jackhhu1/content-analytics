@@ -139,21 +139,21 @@ export default function FeedPanel() {
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Grid — portrait columns matching Reel aspect ratio */}
       <div className="flex-1">
         {loading && posts.length === 0 ? (
           <div className="py-20 text-center text-slate-500 animate-pulse text-sm">
             Tuning into the signal...
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 auto-rows-max">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 auto-rows-max pb-8">
             {filteredAndSortedPosts.length === 0 ? (
               <div className="col-span-full py-24 text-center flex flex-col items-center justify-center">
                 <h3 className="text-slate-200 font-serif text-xl italic tracking-wide">
                   "Ichi-go ichi-e"
                 </h3>
                 <p className="text-slate-500 mt-3 text-sm max-w-sm font-light leading-relaxed">
-                  {alphaOnly ? 'No Alpha signals found matching your criteria. Try disabling the 5x filter.' : 'Every moment is a unique encounter. Add accounts on the left to start collecting signals.'}
+                  {alphaOnly ? 'No Alpha signals found. Try disabling the 5x filter.' : 'Every moment is a unique encounter. Add accounts on the left to start collecting signals.'}
                 </p>
               </div>
             ) : (
@@ -177,3 +177,4 @@ export default function FeedPanel() {
     </div>
   );
 }
+
