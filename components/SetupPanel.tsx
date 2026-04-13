@@ -187,7 +187,7 @@ export default function SetupPanel({ onAccountsChanged }: { onAccountsChanged?: 
                     {acc.profile_pic_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={acc.profile_pic_url}
+                        src={`/api/image-proxy?url=${encodeURIComponent(acc.profile_pic_url)}`}
                         alt={`@${acc.handle}`}
                         className="w-full h-full object-cover"
                         onError={(e) => {
