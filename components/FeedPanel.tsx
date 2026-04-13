@@ -5,7 +5,7 @@ import SignalCard from '@/components/SignalCard';
 
 type SortOption = 'signal' | 'views';
 
-export default function FeedPanel() {
+export default function FeedPanel({ refreshKey = 0 }: { refreshKey?: number }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +67,11 @@ export default function FeedPanel() {
 
   useEffect(() => {
     refreshFeed();
-    // Use an interval to poll the feed every 15s in case new scraped data arrives
-    const intervalId = setInterval(refreshFeed, 15000);
+    // Poll every 30s AND re-fetch whenever the parent bumps refreshKey
+    const intervalId = setInterval(refreshFeed, 30000);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshKey]);
 
   const filteredAndSortedPosts = useMemo(() => {
     let result = [...posts];

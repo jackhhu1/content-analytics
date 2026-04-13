@@ -19,7 +19,7 @@ function formatLastFetched(ts: string | null) {
   return date.toLocaleDateString();
 }
 
-export default function SetupPanel() {
+export default function SetupPanel({ onAccountsChanged }: { onAccountsChanged?: () => void }) {
   const [handleInput, setHandleInput] = useState('');
   const [accounts, setAccounts] = useState<any[]>([]);
   const [status, setStatus] = useState('');
@@ -65,6 +65,7 @@ export default function SetupPanel() {
       setAccounts([newAcc, ...accounts]);
       setHandleInput('');
       setStatus('');
+      onAccountsChanged?.();
     } catch (err: any) {
       setStatus(err.message || 'Error adding account');
     }
@@ -74,6 +75,7 @@ export default function SetupPanel() {
     try {
       await removeAccount(id);
       setAccounts(accounts.filter(a => a.id !== id));
+      onAccountsChanged?.();
     } catch (err: any) {
       setStatus(err.message || 'Error removing account');
     }

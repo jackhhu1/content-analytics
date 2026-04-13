@@ -1,5 +1,4 @@
-import SetupPanel from '@/components/SetupPanel';
-import FeedPanel from '@/components/FeedPanel';
+import DashboardClient from '@/components/DashboardClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,17 +28,11 @@ export default function DashboardPage() {
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-900/10 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-900/10 blur-[120px] pointer-events-none" />
 
-        {/* Left Column: Setup (approx 1/3) */}
-        <div className="w-full lg:w-[400px] xl:w-[450px] p-6 lg:p-8 lg:overflow-y-auto custom-scrollbar z-10 shrink-0">
-          <SetupPanel />
-        </div>
-
-        {/* Right Column: Feed (approx 2/3) */}
-        <div className="flex-1 p-6 lg:p-8 lg:overflow-y-auto custom-scrollbar z-10">
-          <FeedPanel />
-        </div>
+        {/* DashboardClient owns the shared refresh state between panels */}
+        <DashboardClient />
       </main>
 
     </div>
   );
 }
+
