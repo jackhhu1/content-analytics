@@ -125,19 +125,43 @@ export async function getFeedPosts() {
   if (!trackedAccounts || trackedAccounts.length === 0) return [];
   const accountIds = trackedAccounts.map((a: any) => a.id);
 
-  // Query 2: fetch outlier posts for ALL tracked accounts.
-  // Generous limit so every account can contribute, then we cap per-account in JS.
+  // Queries 2, 3, 4: independent once accountIds is known — run in parallel.
   const PER_ACCOUNT_CAP = 15;
-  const { data: rawPosts, error: rpcError } = await supabase
-    .from('posts')
-    .select(`
+  const [
+    { data: rawPosts, error: rpcError },
+    { data: recentPosts },
+    { data: savedRows },
+  ] = await Promise.all([
+    // Query 2: fetch outlier posts for ALL tracked accounts.
+    // Generous limit so every account can contribute, then we cap per-account in JS.
+    supabase
+      .from('posts')
+      .select(`
       id, post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, account_id, thumbnail_url,
       niche_accounts ( handle )
     `)
-    .in('account_id', accountIds)
-    .eq('is_outlier', true)
-    .order('viral_coefficient', { ascending: false })
-    .limit(accountIds.length * PER_ACCOUNT_CAP * 2);
+      .in('account_id', accountIds)
+      .eq('is_outlier', true)
+      .order('viral_coefficient', { ascending: false })
+      .limit(accountIds.length * PER_ACCOUNT_CAP * 2),
+    // Query 3: batch-fetch recent VCs for all accounts (for median calculation).
+    // Order by account_id first, then scraped_at DESC so the JS cap-at-10 loop
+    // correctly takes the 10 most recent posts *per account* rather than the 10
+    // most recent posts globally (which could all come from one active account).
+    supabase
+      .from('posts')
+      .select('account_id, viral_coefficient, scraped_at')
+      .in('account_id', accountIds)
+      .order('account_id', { ascending: true })
+      .order('scraped_at', { ascending: false })
+      .limit(accountIds.length * 10),
+    // Query 4: fetch the user's saved playbook post IDs in one shot so the feed
+    // can render a "saved" state without a per-card round trip.
+    supabase
+      .from('playbook')
+      .select('post_id')
+      .eq('user_id', userId),
+  ]);
 
   if (rpcError) throw rpcError;
   if (!rawPosts || rawPosts.length === 0) return [];
@@ -148,18 +172,6 @@ export async function getFeedPosts() {
     countPerAccount[p.account_id] = (countPerAccount[p.account_id] || 0) + 1;
     return countPerAccount[p.account_id] <= PER_ACCOUNT_CAP;
   });
-
-  // Query 3: batch-fetch recent VCs for all accounts (for median calculation).
-  // Order by account_id first, then scraped_at DESC so the JS cap-at-10 loop
-  // correctly takes the 10 most recent posts *per account* rather than the 10
-  // most recent posts globally (which could all come from one active account).
-  const { data: recentPosts } = await supabase
-    .from('posts')
-    .select('account_id, viral_coefficient, scraped_at')
-    .in('account_id', accountIds)
-    .order('account_id', { ascending: true })
-    .order('scraped_at', { ascending: false })
-    .limit(accountIds.length * 10);
 
   // Group into account → last 10 VCs
   const recentByAccount: Record<string, number[]> = {};
@@ -180,12 +192,6 @@ export async function getFeedPosts() {
       : sorted[mid];
   }
 
-  // Fetch the user's saved playbook post IDs in one shot so the feed can
-  // render a "saved" state without a per-card round trip.
-  const { data: savedRows } = await supabase
-    .from('playbook')
-    .select('post_id')
-    .eq('user_id', userId);
   const savedSet = new Set((savedRows || []).map((r: any) => r.post_id));
 
   // Augment with signal multiplier and return

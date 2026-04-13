@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': contentType,
         // Cache aggressively on edge/browser — Instagram CDN URLs are valid for ~24h
-        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+        'Cache-Control': 'public, max-age=86400, immutable',
       },
     });
   } catch (err) {
