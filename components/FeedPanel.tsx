@@ -136,6 +136,7 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
               filteredAndSortedPosts.map((post) => (
                 <SignalCard
                   key={post.id}
+                  postId={post.id}
                   handle={post.niche_accounts?.handle || 'unknown'}
                   postUrl={post.post_url}
                   caption={post.caption}
@@ -144,6 +145,7 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
                   viralCoefficient={post.viral_coefficient}
                   medianVc={post.medianVc}
                   thumbnailUrl={post.thumbnail_url || null}
+                  initiallySaved={post.isSaved}
                 />
               ))
             )}

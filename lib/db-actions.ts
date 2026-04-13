@@ -180,11 +180,91 @@ export async function getFeedPosts() {
       : sorted[mid];
   }
 
+  // Fetch the user's saved playbook post IDs in one shot so the feed can
+  // render a "saved" state without a per-card round trip.
+  const { data: savedRows } = await supabase
+    .from('playbook')
+    .select('post_id')
+    .eq('user_id', userId);
+  const savedSet = new Set((savedRows || []).map((r: any) => r.post_id));
+
   // Augment with signal multiplier and return
   return cappedPosts.map((post: any) => {
     const medianVc = medians[post.account_id] ?? 0;
     const multiplier = medianVc > 0 ? post.viral_coefficient / medianVc : post.viral_coefficient;
-    return { ...post, medianVc, multiplier };
+    return { ...post, medianVc, multiplier, isSaved: savedSet.has(post.id) };
   });
+}
+
+export async function saveToPlaybook(postId: string) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
+  const { data: existing } = await supabase
+    .from('playbook')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('post_id', postId)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('playbook')
+    .insert({ user_id: userId, post_id: postId })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function removeFromPlaybook(postId: string) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('playbook')
+    .delete()
+    .eq('user_id', userId)
+    .eq('post_id', postId);
+
+  if (error) throw error;
+}
+
+export async function getPlaybookPosts() {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('playbook')
+    .select(`
+      id, hook_draft, format_notes, created_at,
+      posts (
+        id, post_url, caption, view_count, thumbnail_url,
+        niche_accounts ( handle )
+      )
+    `)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching playbook:', error);
+    return [];
+  }
+  return data || [];
+}
+
+export async function updateHookDraft(playbookId: string, draft: string) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('playbook')
+    .update({ hook_draft: draft })
+    .eq('id', playbookId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
 }
 

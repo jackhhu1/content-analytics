@@ -1,5 +1,6 @@
 'use client';
 import React, { useState } from 'react';
+import { updateHookDraft, removeFromPlaybook } from '@/lib/db-actions';
 
 // Format numbers like 1500000 -> 1.5M
 function formatNumber(num: number) {
@@ -9,30 +10,55 @@ function formatNumber(num: number) {
 }
 
 interface PlaybookCardProps {
+  playbookId: string;
+  postId: string;
   handle: string;
   postUrl: string;
   caption: string;
   viewCount: number;
   initialHookDraft?: string;
-  onSaveHook?: (newDraft: string) => void;
+  onRemoved?: (playbookId: string) => void;
 }
 
 export default function PlaybookCard({
+  playbookId,
+  postId,
   handle,
   postUrl,
   caption,
   viewCount,
   initialHookDraft = '',
-  onSaveHook
+  onRemoved,
 }: PlaybookCardProps) {
   const [hookDraft, setHookDraft] = useState(initialHookDraft);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
-  const handleSave = () => {
-    if (onSaveHook) onSaveHook(hookDraft);
-    // Visual feedback
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await updateHookDraft(playbookId, hookDraft);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error('[PlaybookCard] save failed', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (removing) return;
+    setRemoving(true);
+    try {
+      await removeFromPlaybook(postId);
+      onRemoved?.(playbookId);
+    } catch (err) {
+      console.error('[PlaybookCard] remove failed', err);
+      setRemoving(false);
+    }
   };
 
   return (
@@ -80,12 +106,20 @@ export default function PlaybookCard({
             placeholder="Write your version of the hook here..."
             className="w-full bg-black/50 text-slate-200 border border-white/10 rounded-lg p-3 text-sm flex-1 min-h-[120px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-shadow resize-none"
           />
-          <div className="mt-3 flex justify-end">
-            <button 
-              onClick={handleSave}
-              className="text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-500/20"
+          <div className="mt-3 flex justify-between items-center gap-2">
+            <button
+              onClick={handleRemove}
+              disabled={removing}
+              className="text-xs font-medium text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
             >
-              {saved ? "Saved!" : "Save Draft"}
+              {removing ? 'Removing...' : 'Remove'}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-500/20 disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Draft'}
             </button>
           </div>
         </div>

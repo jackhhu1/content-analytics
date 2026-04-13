@@ -1,5 +1,6 @@
 'use client';
 import React, { useState } from 'react';
+import { saveToPlaybook, removeFromPlaybook } from '@/lib/db-actions';
 
 function formatNumber(num: number) {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -13,6 +14,7 @@ function extractShortcode(url: string): string | null {
 }
 
 interface SignalCardProps {
+  postId: string;
   handle: string;
   postUrl: string;
   caption: string;
@@ -21,9 +23,11 @@ interface SignalCardProps {
   viralCoefficient: number;
   medianVc: number;
   thumbnailUrl: string | null;
+  initiallySaved?: boolean;
 }
 
 export default function SignalCard({
+  postId,
   handle,
   postUrl,
   caption,
@@ -32,9 +36,28 @@ export default function SignalCard({
   viralCoefficient,
   medianVc,
   thumbnailUrl,
+  initiallySaved = false,
 }: SignalCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [saved, setSaved] = useState(initiallySaved);
+  const [saving, setSaving] = useState(false);
+
+  const handlePlaybook = async () => {
+    if (saving) return;
+    setSaving(true);
+    const next = !saved;
+    setSaved(next); // optimistic
+    try {
+      if (next) await saveToPlaybook(postId);
+      else await removeFromPlaybook(postId);
+    } catch (err) {
+      console.error('[SignalCard] playbook toggle failed', err);
+      setSaved(!next); // revert
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const rawMultiplier = medianVc > 0 ? viralCoefficient / medianVc : viralCoefficient;
   const multiplierText = rawMultiplier.toFixed(1);
@@ -178,11 +201,19 @@ export default function SignalCard({
             </svg>
             Open Reel
           </a>
-          <button className="flex-1 flex items-center justify-center gap-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-[13px] font-semibold py-2 rounded-lg transition-colors">
-            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button
+            onClick={handlePlaybook}
+            disabled={saving}
+            className={`flex-1 flex items-center justify-center gap-1.5 border text-[13px] font-semibold py-2 rounded-lg transition-colors disabled:opacity-60 ${
+              saved
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20'
+                : 'bg-white/5 border-white/10 text-slate-200 hover:bg-white/10'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill={saved ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
             </svg>
-            Playbook
+            {saved ? 'Saved' : 'Playbook'}
           </button>
         </div>
       </div>
