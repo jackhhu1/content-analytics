@@ -70,7 +70,7 @@ export async function getFeedPosts(userId: string) {
     .eq('user_id', userId)
     .eq('is_outlier', true)
     .eq('niche_accounts.is_tracked', true)  // Only show posts from currently tracked accounts
-    .order('scraped_at', { ascending: false })
+    .order('viral_coefficient', { ascending: false })  // Top signal posts first
     .limit(50);
 
   if (rpcError) throw rpcError;
