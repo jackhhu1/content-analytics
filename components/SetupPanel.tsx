@@ -40,10 +40,8 @@ export default function SetupPanel({
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'recent' | 'followers' | 'az'>('recent');
 
-  const MOCK_USER_ID = '5d1def1e-507a-426b-b859-49f1e3b8ca52';
-
   const refreshAccounts = async () => {
-    const data = await getAccounts(MOCK_USER_ID);
+    const data = await getAccounts();
     setAccounts(data);
     return data;
   };
@@ -75,7 +73,7 @@ export default function SetupPanel({
 
     try {
       setStatus('Adding...');
-      const newAcc = await addAccount(MOCK_USER_ID, raw);
+      const newAcc = await addAccount(raw);
       setAccounts([newAcc, ...accounts]);
       setHandleInput('');
       setStatus('');
@@ -89,7 +87,7 @@ export default function SetupPanel({
 
   const handleRemove = async (id: string) => {
     try {
-      await removeAccount(id, MOCK_USER_ID);
+      await removeAccount(id);
       setAccounts(accounts.filter(a => a.id !== id));
       // Remove from selection too
       const next = new Set(selectedIds);
@@ -135,7 +133,7 @@ export default function SetupPanel({
     setTriggering(true);
     setStatus('Triggering crawler for all accounts...');
     try {
-      const res = await triggerScrapeAction(MOCK_USER_ID);
+      const res = await triggerScrapeAction();
       setStatus(`${res.message} — Waiting for data...`);
       const snapshot: Record<string, string | null> = {};
       accounts.forEach(a => { snapshot[a.id] = a.last_scraped_at; });
@@ -151,7 +149,7 @@ export default function SetupPanel({
     setScrapingId(acc.id);
     setStatus(`Triggering scrape for @${acc.handle}...`);
     try {
-      const res = await triggerScrapeAction(MOCK_USER_ID, acc.handle);
+      const res = await triggerScrapeAction(acc.handle);
       setStatus(`${res.message} — Waiting for data...`);
       const snapshot: Record<string, string | null> = {};
       accounts.forEach(a => { snapshot[a.id] = a.last_scraped_at; });

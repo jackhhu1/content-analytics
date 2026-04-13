@@ -1,21 +1,30 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
+import { adminClient } from '@/lib/supabase/admin';
 
-// Using SERVICE ROLE KEY to bypass RLS in the MVP since auth isn't fully hooked up to cookies
-const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-  : null;
+// ---------------------------------------------------------------------------
+// Helper: get the current user's ID from the session cookie.
+// Throws if not authenticated — callers can catch and redirect.
+// ---------------------------------------------------------------------------
+async function requireUserId(): Promise<string> {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) throw new Error('Not authenticated');
+  return user.id;
+}
 
-export async function getAccounts(userId: string) {
-  if (!supabase) return [];
+export async function getAccounts() {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
   const { data, error } = await supabase
     .from('niche_accounts')
     .select('*')
     .eq('user_id', userId)
-    .eq('is_tracked', true)       // Only show actively tracked accounts
+    .eq('is_tracked', true)
     .order('created_at', { ascending: false });
-    
+
   if (error) {
     console.error('Error fetching accounts:', error);
     return [];
@@ -23,18 +32,16 @@ export async function getAccounts(userId: string) {
   return data || [];
 }
 
-export async function addAccount(userId: string, handle: string) {
-  if (!supabase) throw new Error("Supabase not configured");
-  
-  // Upsert on (user_id, handle) — if they previously removed this account, re-track it.
-  // This requires the unique constraint: niche_accounts_user_handle_unique
+export async function addAccount(handle: string) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
   const { data, error } = await supabase
     .from('niche_accounts')
-    .upsert({
-      user_id: userId,
-      handle: handle,
-      is_tracked: true,
-    }, { onConflict: 'user_id, handle', ignoreDuplicates: false })
+    .upsert(
+      { user_id: userId, handle, is_tracked: true },
+      { onConflict: 'user_id, handle', ignoreDuplicates: false }
+    )
     .select()
     .single();
 
@@ -42,24 +49,22 @@ export async function addAccount(userId: string, handle: string) {
   return data;
 }
 
-/**
- * Soft-delete: marks the account as untracked for this user.
- * - The niche_accounts row is KEPT so last_scraped_at, profile_pic_url, and
- *   follower data are preserved and can be shared with other users tracking the same handle.
- * - Posts linked to this account are also KEPT (no cascade delete).
- */
-export async function removeAccount(accountId: string, userId: string) {
-  if (!supabase) throw new Error("Supabase not configured");
+export async function removeAccount(accountId: string) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
+
   const { error } = await supabase
     .from('niche_accounts')
     .update({ is_tracked: false })
     .eq('id', accountId)
-    .eq('user_id', userId);
+    .eq('user_id', userId); // ownership check — never soft-delete another user's account
+
   if (error) throw error;
 }
 
-export async function getFeedPosts(userId: string) {
-  if (!supabase) throw new Error("Supabase not configured");
+export async function getFeedPosts() {
+  const userId = await requireUserId();
+  const supabase = await createClient();
 
   // Query 1: get all tracked account IDs for this user
   const { data: trackedAccounts } = await supabase
@@ -71,9 +76,8 @@ export async function getFeedPosts(userId: string) {
   if (!trackedAccounts || trackedAccounts.length === 0) return [];
   const accountIds = trackedAccounts.map((a: any) => a.id);
 
-  // Query 2: fetch outlier posts for ALL tracked accounts
+  // Query 2: fetch outlier posts for ALL tracked accounts.
   // Generous limit so every account can contribute, then we cap per-account in JS.
-  // This ensures a dominant account can't crowd out smaller ones.
   const PER_ACCOUNT_CAP = 15;
   const { data: rawPosts, error: rpcError } = await supabase
     .from('posts')
@@ -84,7 +88,7 @@ export async function getFeedPosts(userId: string) {
     .in('account_id', accountIds)
     .eq('is_outlier', true)
     .order('viral_coefficient', { ascending: false })
-    .limit(accountIds.length * PER_ACCOUNT_CAP * 2); // headroom for the per-account cap
+    .limit(accountIds.length * PER_ACCOUNT_CAP * 2);
 
   if (rpcError) throw rpcError;
   if (!rawPosts || rawPosts.length === 0) return [];

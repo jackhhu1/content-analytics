@@ -1,8 +1,15 @@
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 import DashboardClient from '@/components/DashboardClient';
 
 export const dynamic = 'force-dynamic';
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) redirect('/login');
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-200 font-sans selection:bg-emerald-500/30 overflow-hidden flex flex-col">
       {/* Top Navbar / Branding */}
@@ -17,21 +24,21 @@ export default function DashboardPage() {
             Viral<span className="font-light">Intel</span>
           </span>
         </div>
-        <div className="text-xs font-bold uppercase tracking-widest text-slate-500 border border-white/5 px-3 py-1.5 rounded-full bg-white/5">
-          Signal Beta
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500 hidden sm:block">{user.email}</span>
+          <div className="text-xs font-bold uppercase tracking-widest text-slate-500 border border-white/5 px-3 py-1.5 rounded-full bg-white/5">
+            Signal Beta
+          </div>
         </div>
       </nav>
 
       {/* Main Dashboard Layout */}
       <main className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* Abstract Background Elements */}
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-900/10 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-900/10 blur-[120px] pointer-events-none" />
 
-        {/* DashboardClient owns the shared refresh state between panels */}
         <DashboardClient />
       </main>
-
     </div>
   );
 }

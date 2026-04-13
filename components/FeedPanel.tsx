@@ -14,14 +14,11 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
   const [alphaOnly, setAlphaOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('signal');
 
-  // Hardcoded mock user
-  const MOCK_USER_ID = '5d1def1e-507a-426b-b859-49f1e3b8ca52';
-
   const refreshFeed = async () => {
     try {
       setLoading(true);
       setError(null);
-      const augmented = await getFeedPosts(MOCK_USER_ID);
+      const augmented = await getFeedPosts();
       setPosts(augmented);
     } catch (err: any) {
       console.error('[FeedPanel] Failed to load feed:', err);
