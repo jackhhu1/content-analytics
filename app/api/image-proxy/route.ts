@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
   }
 
-  const allowed = ALLOWED_HOSTS.some(host => parsed.hostname.endsWith(host));
+  const allowed = ALLOWED_HOSTS.some(host => parsed.hostname === host || parsed.hostname.endsWith('.' + host));
   if (!allowed) {
     return NextResponse.json({ error: 'Forbidden host' }, { status: 403 });
   }

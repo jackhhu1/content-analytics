@@ -24,7 +24,8 @@ export async function triggerScrapeAction(userId: string, handle?: string) {
       const { data: accounts, error } = await supabase
         .from('niche_accounts')
         .select('handle')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('is_tracked', true);
 
       if (error) throw error;
       if (!accounts || accounts.length === 0) return { success: false, message: 'No accounts tracked.' };

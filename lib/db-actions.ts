@@ -48,12 +48,13 @@ export async function addAccount(userId: string, handle: string) {
  *   follower data are preserved and can be shared with other users tracking the same handle.
  * - Posts linked to this account are also KEPT (no cascade delete).
  */
-export async function removeAccount(accountId: string) {
+export async function removeAccount(accountId: string, userId: string) {
   if (!supabase) throw new Error("Supabase not configured");
   const { error } = await supabase
     .from('niche_accounts')
     .update({ is_tracked: false })
-    .eq('id', accountId);
+    .eq('id', accountId)
+    .eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -95,11 +96,15 @@ export async function getFeedPosts(userId: string) {
     return countPerAccount[p.account_id] <= PER_ACCOUNT_CAP;
   });
 
-  // Query 3: batch-fetch recent VCs for all accounts (for median calculation)
+  // Query 3: batch-fetch recent VCs for all accounts (for median calculation).
+  // Order by account_id first, then scraped_at DESC so the JS cap-at-10 loop
+  // correctly takes the 10 most recent posts *per account* rather than the 10
+  // most recent posts globally (which could all come from one active account).
   const { data: recentPosts } = await supabase
     .from('posts')
     .select('account_id, viral_coefficient, scraped_at')
     .in('account_id', accountIds)
+    .order('account_id', { ascending: true })
     .order('scraped_at', { ascending: false })
     .limit(accountIds.length * 10);
 

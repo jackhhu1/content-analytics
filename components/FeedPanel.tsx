@@ -17,49 +17,15 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
   // Hardcoded mock user
   const MOCK_USER_ID = '5d1def1e-507a-426b-b859-49f1e3b8ca52';
 
-  // We expose a standalone refresh function in case we want to poll or manually refresh
   const refreshFeed = async () => {
     try {
       setLoading(true);
+      setError(null);
       const augmented = await getFeedPosts(MOCK_USER_ID);
       setPosts(augmented);
     } catch (err: any) {
-      console.warn("Using mock data:", err);
-      setPosts([
-        {
-          id: '1',
-          post_url: 'https://instagram.com/p/mock_ohnohanajo_viral1',
-          caption: 'This AI pattern changed my whole workflow \uD83E\uDD2F wait for the end...',
-          view_count: 85000,
-          follower_count_at_scrape: 15400,
-          viral_coefficient: 5.51,
-          medianVc: 0.9,
-          multiplier: 6.1,
-          niche_accounts: { handle: 'ohnohanajo' }
-        },
-        {
-          id: '2',
-          post_url: 'https://instagram.com/p/mock_annataha_viral1',
-          caption: 'How I grew my newsletter in 30 days using one simple trick',
-          view_count: 144000,
-          follower_count_at_scrape: 32000,
-          viral_coefficient: 4.5,
-          medianVc: 1.1,
-          multiplier: 4.1,
-          niche_accounts: { handle: 'annataha' }
-        },
-        {
-          id: '3',
-          post_url: 'https://instagram.com/p/mock_annataha_viral2',
-          caption: 'Stop overthinking your hooks. Do THIS instead \uD83D\uDC47',
-          view_count: 320000,
-          follower_count_at_scrape: 32000,
-          viral_coefficient: 10.0,
-          medianVc: 1.1,
-          multiplier: 9.0,
-          niche_accounts: { handle: 'annataha' }
-        }
-      ]);
+      console.error('[FeedPanel] Failed to load feed:', err);
+      setError('Feed unavailable — check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -67,9 +33,7 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
 
   useEffect(() => {
     refreshFeed();
-    // Poll every 30s AND re-fetch whenever the parent bumps refreshKey
-    const intervalId = setInterval(refreshFeed, 30000);
-    return () => clearInterval(intervalId);
+    // Re-fetch whenever the parent bumps refreshKey (scrape complete)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
@@ -146,7 +110,17 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
 
       {/* Grid — portrait columns matching Reel aspect ratio */}
       <div className="flex-1">
-        {loading && posts.length === 0 ? (
+        {error ? (
+          <div className="py-20 text-center flex flex-col items-center gap-3">
+            <p className="text-red-400 text-sm">{error}</p>
+            <button
+              onClick={refreshFeed}
+              className="text-xs font-semibold text-slate-300 border border-white/10 px-4 py-2 rounded-lg hover:border-white/20 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading && posts.length === 0 ? (
           <div className="py-20 text-center text-slate-500 animate-pulse text-sm">
             Tuning into the signal...
           </div>

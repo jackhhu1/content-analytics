@@ -104,13 +104,18 @@ export async function POST(req: Request) {
           .limit(10);
 
         const currentMedian = getAccountMedian((recentPosts || []) as { viral_coefficient: number }[]);
+        // Require at least 5 existing posts before using relative outlier detection.
+        // Without a baseline, every post from a new account would be marked is_outlier
+        // (any vc > 0 beats median=0 * 2.0). Below the threshold, only the absolute
+        // floor (vc >= 2.0) applies, so first-scrape results don't flood the feed.
+        const hasBaseline = (recentPosts || []).length >= 5;
 
         // Prepare inserts
         const inserts = posts.map((post) => {
           // Use followers from payload if available, else fallback to account follower count
           const followersAtScrape = post.followers || account.current_follower_count;
           const vc = calculateVC(post.views, followersAtScrape);
-          const isOutlier = vc >= 2.0 || vc > (currentMedian * 2.0);
+          const isOutlier = vc >= 2.0 || (hasBaseline && vc > (currentMedian * 2.0));
 
           return {
             account_id: account.id,

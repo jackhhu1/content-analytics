@@ -89,7 +89,7 @@ export default function SetupPanel({
 
   const handleRemove = async (id: string) => {
     try {
-      await removeAccount(id);
+      await removeAccount(id, MOCK_USER_ID);
       setAccounts(accounts.filter(a => a.id !== id));
       // Remove from selection too
       const next = new Set(selectedIds);
@@ -103,7 +103,10 @@ export default function SetupPanel({
 
   const startPolling = (watchId: string | null, snapshot: Record<string, string | null>) => {
     prevScrapedRef.current = snapshot;
+    const MAX_POLLS = 120; // 10 minutes at 5s intervals before giving up
+    let pollCount = 0;
     pollRef.current = setInterval(async () => {
+      pollCount++;
       const fresh = await refreshAccounts();
       const updated = watchId
         ? fresh.some((a: any) => a.id === watchId && a.last_scraped_at !== snapshot[a.id])
@@ -117,11 +120,18 @@ export default function SetupPanel({
         setStatus('✓ Scrape complete — feed updating...');
         onAccountsChanged?.();   // ← immediately refresh the feed
         setTimeout(() => setStatus(''), 4000);
+      } else if (pollCount >= MAX_POLLS) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setTriggering(false);
+        setScrapingId(null);
+        setStatus('Scrape may have failed — try again or check Apify.');
       }
     }, 5000);
   };
 
   const handleTrigger = async () => {
+    if (pollRef.current) clearInterval(pollRef.current);
     setTriggering(true);
     setStatus('Triggering crawler for all accounts...');
     try {

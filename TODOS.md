@@ -19,6 +19,17 @@ shows banner if any account is stale.
 
 ---
 
+### Webhook replay protection
+**What:** Store Apify `run.id` when processing a webhook. On replay (Apify retries on non-2xx or manually re-triggered), skip re-scoring posts already processed for that run ID.
+
+**Why:** Apify retries webhooks on failure. On replay, `is_outlier` is re-scored against a larger baseline (the first run's posts now exist), so flags can silently flip. Storing the run ID lets us detect and skip replays.
+
+**How to apply:** Add `apify_run_id TEXT` column to a new `scrape_runs` table (or to `posts`). At webhook start, check if this run_id was already processed. If yes, return 200 immediately. Only process fresh runs.
+
+**Depends on:** Core scraping pipeline working first (same as failure monitoring).
+
+---
+
 ## Before broader beta rollout
 
 ### Google OAuth
@@ -48,3 +59,16 @@ within the Edge Function. Or add `posted_at >= now() - 14 days` filter to Apify 
 input to reduce batch size. Both can be combined.
 
 **Depends on:** Having > 1 active user.
+
+---
+
+## v2 architectural improvements
+
+### Shared posts table (post deduplication)
+**What:** Currently `posts` has a `user_id` column, so each user tracking the same Instagram account gets their own copy of every post. 100 users tracking @garyvee = 100 identical rows.
+
+**Why:** Storage and compute scale as `users × accounts × posts` rather than `accounts × posts`. Acceptable at 5 beta users, becomes a problem at 500.
+
+**How to apply:** Redesign `posts` as a shared table with no `user_id` (keyed on `account_id, post_url`). Add a `user_post_associations(user_id, post_id)` join table for per-user state (saved, notes, seen). Migrate existing data. Update all queries and RLS policies.
+
+**Depends on:** Multi-user beta showing the dedup is actually needed (validate first).
