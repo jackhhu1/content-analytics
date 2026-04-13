@@ -9,9 +9,11 @@ import { adminClient } from '@/lib/supabase/admin';
 // ---------------------------------------------------------------------------
 async function requireUserId(): Promise<string> {
   const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) throw new Error('Not authenticated');
-  return user.id;
+  // getSession() reads the JWT from the cookie without a network call.
+  // Safe for server actions — the session is already validated by middleware.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) throw new Error('Not authenticated');
+  return session.user.id;
 }
 
 export async function getAccounts() {
@@ -36,16 +38,63 @@ export async function addAccount(handle: string) {
   const userId = await requireUserId();
   const supabase = await createClient();
 
+  // Check if any other user has already scraped this handle.
+  // If so, seed this new account row with their metadata so it doesn't
+  // show "Never fetched" and their posts get copied across immediately.
+  const { data: existing } = await adminClient
+    .from('niche_accounts')
+    .select('id, last_scraped_at, current_follower_count, profile_pic_url')
+    .eq('handle', handle)
+    .neq('user_id', userId)
+    .not('last_scraped_at', 'is', null)
+    .order('last_scraped_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const { data, error } = await supabase
     .from('niche_accounts')
     .upsert(
-      { user_id: userId, handle, is_tracked: true },
+      {
+        user_id: userId,
+        handle,
+        is_tracked: true,
+        // Seed from existing scraped data if available
+        ...(existing && {
+          last_scraped_at: existing.last_scraped_at,
+          current_follower_count: existing.current_follower_count,
+          profile_pic_url: existing.profile_pic_url,
+        }),
+      },
       { onConflict: 'user_id, handle', ignoreDuplicates: false }
     )
     .select()
     .single();
 
   if (error) throw error;
+
+  // Copy posts from the source account into this user's account.
+  // Uses admin client to read across user boundaries, then inserts with
+  // the new account_id and user_id so RLS lets this user see them.
+  if (existing) {
+    const { data: sourcePosts } = await adminClient
+      .from('posts')
+      .select('post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, thumbnail_url')
+      .eq('account_id', existing.id);
+
+    if (sourcePosts && sourcePosts.length > 0) {
+      await adminClient
+        .from('posts')
+        .upsert(
+          sourcePosts.map(p => ({
+            ...p,
+            account_id: data.id,
+            user_id: userId,
+          })),
+          { onConflict: 'account_id, post_url', ignoreDuplicates: true }
+        );
+    }
+  }
+
   return data;
 }
 
