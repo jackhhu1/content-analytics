@@ -3,6 +3,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { triggerScrapeAction } from '@/lib/apify-trigger';
 import { getAccounts, addAccount, removeAccount } from '@/lib/db-actions';
 
+function formatNumber(num: number) {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+  return num.toString();
+}
+
 function formatLastFetched(ts: string | null) {
   if (!ts) return 'Never fetched';
   const date = new Date(ts);
@@ -193,7 +199,7 @@ export default function SetupPanel() {
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-200 text-sm truncate">@{acc.handle}</p>
                     <p className="text-xs text-slate-500 truncate">
-                      {acc.current_follower_count > 0 ? `${acc.current_follower_count.toLocaleString()} fol · ` : ''}
+                      {acc.current_follower_count > 0 ? `${formatNumber(acc.current_follower_count)} fol · ` : ''}
                       <span className={acc.last_scraped_at ? 'text-emerald-600' : 'text-slate-600'}>
                         {acc.last_scraped_at ? `Fetched ${formatLastFetched(acc.last_scraped_at)}` : 'Never fetched'}
                       </span>
