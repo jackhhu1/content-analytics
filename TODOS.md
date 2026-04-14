@@ -72,3 +72,22 @@ input to reduce batch size. Both can be combined.
 **How to apply:** Redesign `posts` as a shared table with no `user_id` (keyed on `account_id, post_url`). Add a `user_post_associations(user_id, post_id)` join table for per-user state (saved, notes, seen). Migrate existing data. Update all queries and RLS policies.
 
 **Depends on:** Multi-user beta showing the dedup is actually needed (validate first).
+
+---
+
+## Design (from /design-review 2026-04-13)
+
+### FINDING-008: ViralIntel favicon (replace default Next.js logo)
+**Impact:** Medium
+**What:** The favicon is still the default Next.js triangle. Every browser tab shows the Next.js logo. Export the app icon (emerald-to-indigo gradient bolt) as a 32×32 PNG and add it to `/public/` as `favicon.ico`, plus add `<link rel="icon">` in layout metadata.
+**How to apply:** Design the icon at 32×32, save as `/public/favicon.ico` and `/public/icon.png`. Update `layout.tsx` metadata with `icons: { icon: '/icon.png' }`.
+
+### FINDING-009: Skeleton loading state for Signal Feed
+**Impact:** Medium
+**What:** The feed loading state is a single centered "Tuning into the signal..." text. The actual content is a 3-column portrait card grid. Users see empty space then cards snap in. Add skeleton cards that match the `rounded-2xl border border-white/10` shape with 9/16 aspect ratio and shimmer animation.
+**How to apply:** Create a `SignalCardSkeleton` component. Render 6 of them in FeedPanel when `loading && posts.length === 0`.
+
+### FINDING-010: Investigate 4.1s TTFB on login page
+**Impact:** High
+**What:** Live perf audit measured 4126ms TTFB on the login page. LCP target is <2.0s. Login has no auth check — this is either dev-mode Next.js overhead or middleware doing unnecessary work on `/login`.
+**How to apply:** Profile in production deploy. Check if middleware is running Supabase session checks on the `/login` path unnecessarily.
