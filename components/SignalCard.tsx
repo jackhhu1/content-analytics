@@ -172,8 +172,7 @@ export default function SignalCard({
         {/* Caption */}
         <div>
           <p
-            onClick={() => setExpanded(!expanded)}
-            className={`text-slate-300 text-[13px] leading-relaxed cursor-pointer select-none ${expanded ? '' : 'line-clamp-2'}`}
+            className={`text-slate-300 text-[13px] leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}
           >
             {caption || 'No caption.'}
           </p>
