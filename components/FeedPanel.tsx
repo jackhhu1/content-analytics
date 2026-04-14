@@ -55,7 +55,7 @@ export default function FeedPanel({ refreshKey = 0, selectedIds }: { refreshKey?
     });
 
     return result;
-  }, [posts, alphaOnly, sortBy]);
+  }, [posts, alphaOnly, sortBy, selectedIds]);
 
   return (
     <div className="flex flex-col h-full space-y-6 lg:border-l border-white/5 lg:pl-10">
