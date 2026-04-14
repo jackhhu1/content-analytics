@@ -98,7 +98,7 @@ export default function PlaybookCard({
         <div className="p-5 flex flex-col bg-black/40">
           <label className="text-slate-300 font-semibold mb-2 block text-sm flex items-center justify-between">
             <span>My Twist (Hook Draft)</span>
-            {saved && <span className="text-emerald-400 text-xs animate-pulse">Saved ✓</span>}
+            {saved && <span className="text-emerald-400 text-xs" aria-live="polite">Saved</span>}
           </label>
           <textarea 
             value={hookDraft}
