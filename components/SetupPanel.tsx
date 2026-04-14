@@ -212,7 +212,7 @@ export default function SetupPanel({
               value={handleInput}
               onChange={e => setHandleInput(e.target.value)}
               placeholder="instagram_handle"
-              className="w-full bg-black/50 border border-white/10 rounded-lg py-2.5 pl-8 pr-3 focus:outline-none focus:border-indigo-500 text-white placeholder-slate-600 transition-colors"
+              className="w-full bg-black/50 border border-white/10 rounded-lg py-2.5 pl-8 pr-3 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-white placeholder-slate-600 transition-colors"
             />
           </div>
           <button
