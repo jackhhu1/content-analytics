@@ -76,12 +76,33 @@ export async function addAccount(handle: string) {
   // Uses admin client to read across user boundaries, then inserts with
   // the new account_id and user_id so RLS lets this user see them.
   if (existing) {
-    const { data: sourcePosts } = await adminClient
-      .from('posts')
-      .select('post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, thumbnail_url')
-      .eq('account_id', existing.id);
+    // Only copy outlier posts (what the feed shows) + enough recent posts for
+    // the median VC calculation (needs 10). Copying every post is unbounded
+    // and causes multi-second upserts when an account has hundreds of posts.
+    const [{ data: outlierPosts }, { data: recentPosts }] = await Promise.all([
+      adminClient
+        .from('posts')
+        .select('post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, thumbnail_url')
+        .eq('account_id', existing.id)
+        .eq('is_outlier', true)
+        .order('viral_coefficient', { ascending: false })
+        .limit(50),
+      adminClient
+        .from('posts')
+        .select('post_url, caption, view_count, follower_count_at_scrape, viral_coefficient, is_outlier, scraped_at, thumbnail_url')
+        .eq('account_id', existing.id)
+        .order('scraped_at', { ascending: false })
+        .limit(10),
+    ]);
 
-    if (sourcePosts && sourcePosts.length > 0) {
+    const seen = new Set<string>();
+    const sourcePosts = [...(outlierPosts || []), ...(recentPosts || [])].filter(p => {
+      if (seen.has(p.post_url)) return false;
+      seen.add(p.post_url);
+      return true;
+    });
+
+    if (sourcePosts.length > 0) {
       await adminClient
         .from('posts')
         .upsert(
